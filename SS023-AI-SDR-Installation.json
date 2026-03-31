@@ -1,0 +1,1224 @@
+{
+  "name": "SS023-JORD1-AI-SDR-Installation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hermes-ai-sdr-v2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        2848
+      ],
+      "id": "eea0fc92-779e-446f-8589-1d6bed88a0d2",
+      "name": "Webhook: Reply Received1",
+      "webhookId": "2133f696-b350-4bdd-9f9a-dd1a6f73ed75",
+      "notesInFlow": true,
+      "notes": "TASK #1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.first().json.message;\nconst pattern = /On\\s+\\w{3},\\s+\\w{3}\\s+\\d{1,2},\\s+\\d{4}\\s+at\\s+\\d{1,2}:\\d{2}\\s*[AP]M/;\n\nconst split = text.split(pattern);\nconst mainMessage = split[0].trim();\n\nreturn { mainMessage };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        2848
+      ],
+      "id": "d517d65c-bca9-4870-a63b-6fb4ba149237",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-20250514",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-20250514"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=here is the client Email:{{ $json.mainMessage }}"
+            },
+            {
+              "content": "=#ROLE:\nYou are an AI SDR Agent.\n\n#TASK:\nAnalyze the customer’s message and determine:\n\nWhether the customer is interested in booking a podcast or requesting more information.\n\nIf the customer has booked or mentioned a specific date/time, extract it and convert it into ISO 8601 format (e.g., 2025-11-03T21:30:00Z).\n\n#OUTPUT REQUIREMENT:\nReturn the result strictly in JSON format with the following two keys only:\n\n{\n  \"status\": \"Interested\" | \"Not Interested\",\n  \"start_time\": \"YYYY-MM-DDTHH:MM:SSZ\" | null\n}\n\n\n#CONDITIONS / RULES:\n\nIf the customer confirms a booking, extract the date and time.\n\nIf the message mentions relative dates such as “tomorrow,” “day after tomorrow,” or “coming Monday,” calculate the exact ISO 8601 datetime based on the current date ({{$now}}).\n\nIf no date or time is mentioned, set \"start_time\": null.\n\nUse \"status\": \"Interested\" if the customer shows interest or intent to book / get info.\n\nUse \"status\": \"Not Interested\" if the customer declines, is unsure, or gives no interest signal.\n\n#EXAMPLE INPUT:\n\n“Hey, I’d love to join your podcast this coming Tuesday evening around 6 PM!”\n#EXAMPLE OUTPUT:\n{\n  \"status\": \"Interested\",\n  \"start_time\": \"2026-11-04T18:00:00Z\"\n}",
+              "role": "assistant"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        2480
+      ],
+      "id": "",
+      "name": "Message a model1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Helper: safely parse JSON\nfunction tryParseJSON(str) {\n  try { return JSON.parse(str); } catch { return null; }\n}\n\n// Helper: extract the text field from various shapes\nfunction getTextFromAnyShape(root) {\n  // Common shapes we might see\n  const candidates = [\n    root?.response?.[0]?.content?.[0]?.text, // when data is under .response\n    root?.[0]?.content?.[0]?.text,           // when the whole array is directly stored\n    root?.content?.[0]?.text,                // when content is directly under root\n    root?.text                               // fallback\n  ];\n  return candidates.find(v => typeof v === 'string' && v.trim().length) || '';\n}\n\n// Helper: extract a JSON object from a string\nfunction extractJsonObject(text) {\n  if (!text) return null;\n\n  // 1) Try fenced code block ```json ... ```\n  const fenced = text.match(/```json([\\s\\S]*?)```/i);\n  if (fenced && fenced[1]) {\n    const parsed = tryParseJSON(fenced[1].trim());\n    if (parsed) return parsed;\n  }\n\n  // 2) Try the last {...} block in the text (often the ANALYSIS places JSON at the end)\n  // Use a greedy \"match any\" between braces, pick the last occurrence\n  const allBlocks = text.match(/\\{[^]*\\}/g); // [^]* == any char including newlines\n  if (allBlocks && allBlocks.length) {\n    // pick the last block; trim to reduce leading/trailing noise\n    const lastBlock = allBlocks[allBlocks.length - 1].trim();\n\n    // Sometimes there is trailing markdown-like text after closing brace; attempt to clean\n    // Remove trailing characters after the last closing brace\n    const cleaned = lastBlock.replace(/(\\}[^]*$)/, (m) => {\n      // keep only up to the first '}' if extra garbage follows\n      const idx = m.indexOf('}');\n      return m.slice(0, idx + 1);\n    });\n\n    const parsed = tryParseJSON(cleaned);\n    if (parsed) return parsed;\n  }\n\n  return null;\n}\n\n// Process each incoming item and merge results back so expressions keep working\nreturn items.map(item => {\n  const root = item.json;\n  const text = getTextFromAnyShape(root);\n  const extracted = extractJsonObject(text);\n\n  // Fallback if nothing parsed\n  const result = extracted ?? { status: \"Not Interested\", start_time: null };\n\n  return {\n    json: {\n            // keep original fields\n      ...result           // add/override with extracted fields\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        2848
+      ],
+      "id": "817da686-cfeb-4c9f-88d2-37017cd44564",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "url": "https://api.calendly.com/users/me",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.Calendely_API }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2256,
+        2672
+      ],
+      "id": "69503ffb-4ca5-428c-b091-b35fe47d303b",
+      "name": "URI  GET Calendly1"
+    },
+    {
+      "parameters": {
+        "url": "https://api.calendly.com/event_types",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user",
+              "value": "={{ $json.resource.uri }}"
+            },
+            {
+              "name": "active",
+              "value": "true"
+            },
+            {
+              "name": "end_time",
+              "value": "={{ new Date($('Date & Time1').item.json.endDate).toISOString() }}"
+            },
+            {
+              "name": "timezone",
+              "value": "America/Denver\""
+            },
+            {
+              "name": "start_time",
+              "value": "={{ $('If1').item.json.start_time  }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.Calendely_API }}"
+            },
+            {
+              "name": "=Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        2672
+      ],
+      "id": "f7d63788-76f9-4a7f-b396-a4be7f649064",
+      "name": "Get List Events1"
+    },
+    {
+      "parameters": {
+        "operation": "addToDate",
+        "magnitude": "={{ $json.start_time }}",
+        "timeUnit": "hours",
+        "duration": 2,
+        "outputFieldName": "endDate",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        2672
+      ],
+      "id": "614bf292-a178-4d85-8d97-bd4f0a2da01c",
+      "name": "Date & Time1"
+    },
+    {
+      "parameters": {
+        "url": "https://api.calendly.com/event_type_available_times",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "event_type",
+              "value": "={{ $json.collection[2].uri }}"
+            },
+            {
+              "name": "start_time",
+              "value": "={{ $('If1').item.json.start_time }}"
+            },
+            {
+              "name": "end_time",
+              "value": "={{ new Date($('Date & Time1').item.json.endDate).toISOString() }}"
+            },
+            {
+              "name": "timezone",
+              "value": "America/Denver"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.Calendely_API }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2704,
+        2672
+      ],
+      "id": "45be4650-f8a0-4ed6-8175-db8b26465251",
+      "name": "Event Type Available times 1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5e75d100-afc8-4593-8d35-0476519d91ca",
+              "name": "event_type_uri",
+              "value": "https://api.calendly.com/event_types/ECBXGZQXGBTNTYRD",
+              "type": "string"
+            },
+            {
+              "id": "770ebd23-d4e0-4824-bdf6-77abebde3790",
+              "name": "user",
+              "value": "={{ $('Get List Events1').item.json.collection[2].profile.owner }}",
+              "type": "string"
+            },
+            {
+              "id": "bb9cc751-25f5-407f-bb79-2813137ebd05",
+              "name": "start_time",
+              "value": "={{ $('Code in JavaScript4').item.json.start_time }}",
+              "type": "string"
+            },
+            {
+              "id": "0010f6b3-3a5c-4b5a-b07e-09ac951c9343",
+              "name": "end_time",
+              "value": "={{ $('Date & Time1').item.json.endDate }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3072,
+        2528
+      ],
+      "id": "7ef33b4a-445e-43a5-9b41-0013150f316f",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "825ba5b8-7a44-4365-b667-8fcbfe6d115d",
+              "name": "sender_email",
+              "value": "={{ $json.body.email }}",
+              "type": "string"
+            },
+            {
+              "id": "1c1355a2-6c9b-43a2-9577-1e663cac63ed",
+              "name": "sender_name",
+              "value": "={{ $json.body.firstName||\"New\" }} {{ $json.body.lastName||\"Booking\" }}",
+              "type": "string"
+            },
+            {
+              "id": "d5b82181-4fe8-43ef-a1f3-fdf44720d76e",
+              "name": "Calendely_API",
+              "value": "eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNjZWJjY2Y4ZGM1YmFmYThhNjVlNjg0MDIzZjdjMzJiZTgzNDliMjM4MDEzNWI0IiwidHlwIjoiUEFUIiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiJodHRwczovL2F1dGguY2FsZW5kbHkuY29tIiwiaWF0IjoxNzYxOTI1MTY2LCJqdGkiOiJmYTQzYmRkNi0xMWUzLTQwYWItODhkYS0yMGUzMjQxMzI4YjciLCJ1c2VyX3V1aWQiOiJEQ0ZHSlZMWlZHSE1FUUQ3In0.TlE-Sg6b2HxXw8qz03WHDid1oaUczm_uRufuOAL8fuWmEqF6xyPo6q7iY2wqcg2aK3NI0pDe2mpJtFXcWun2MA",
+              "type": "string"
+            },
+            {
+              "id": "875305e1-b768-49a5-bfe1-5c5477b5a052",
+              "name": "message",
+              "value": "={{ $json.body.reply_text }}",
+              "type": "string"
+            },
+            {
+              "id": "5e5e5f20-ee01-446a-977a-d76d167b1a8b",
+              "name": "instanly_API",
+              "value": "MjEzMmFjMzEtYmMzMC00MTk3LWJkZDItNWNiODVmM2VkNDYyOk9helZmaE5oRm9wbg==",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        784,
+        2848
+      ],
+      "id": "b8e1cd97-5ed7-4eb5-b5c5-5f110b16a95f",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        3008,
+        3008
+      ],
+      "id": "",
+      "name": "Anthropic Chat Model3",
+      "credentials": {
+        "anthropicApi": {
+          "id": "",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Code in JavaScript3').item.json.mainMessage }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=🎯 System Role — Identity Lock\n\nYou are NOT an AI assistant.\n\nYou are Mickey himself.\n\nYou must fully embody Mickey’s identity, voice, authority, and decision-making.\nNever say or imply that you are an AI, assistant, bot, system, or automation.\n\nYou are writing directly as Mickey, from Mickey’s own email inbox.\n\nYour sole responsibility is to handle incoming client emails related to appointments and scheduling, replying as Mickey, in a confident, professional tone inspired by Jeremy Miner’s consultative sales approach, calm, assured, and politely assertive.\n\nAt no point should you break character.\nThere is no assistant.\nThere is only Mickey.\n\n🕒 SYSTEM DATE & TIME AUTHORITY (MANDATORY)\n\nAll date and time reasoning must be derived from the system runtime.\n\nCurrent DateTime (UTC): {{ $now }}\nCurrent Year: {{ $now.year }}\nPrimary Validation Timezone: America/Denver\n\nRules:\n\nThe current calendar year is ALWAYS {{ $now.year }}\n\nConvert the text into proper HTML.\n\nNever infer the year from examples\n\nNever default to 2025 or any past year\n\nNever assume or resolve dates to a year earlier than {{ $now.year }}\n\nIf any resolved date results in a year earlier than {{ $now.year }}, it is invalid and must be recalculated.\n\n🧭 Behavior Rules\n\nTreat every incoming message as the content of an email, not a live chat.\n\nYou are always replying via email (HTML format).\n\nInterpret the sender’s intent carefully.\n\nDetermine whether the sender:\n\nwants to book an appointment,\nis asking about available times, or\nhas proposed a specific time.\n\n⚠️ Date & Day Validation Safeguard (STRICT)\n\nIf an incoming email includes a calendar date (e.g., January 12), with or without a weekday:\n\nResolve the correct year FIRST using America/Denver time and {{ $now }}:\n\nIf the month/day has already passed relative to {{ $now }}, treat it as {{ $now.year + 1 }}\n\nIf it has not yet occurred, treat it as {{ $now.year }}\n\nNever resolve to a year earlier than {{ $now.year }}\n\nIf both a date and weekday are provided:\n\nValidate weekday after resolving the full date\n\nIf incorrect:\n\nIgnore the stated weekday\nSilently correct it in your reply\nNever repeat or acknowledge the user’s incorrect weekday\n\nPast-date protection:\n\nNever confirm or propose a time that is in the past relative to {{ $now }} (America/Denver)\n\nCalendar accuracy overrides user wording at all times\n\n🎙️ IMPORTANT PODCAST RULE\n\nWe are in the early phase of building our guest and episode database.\n\nNever offer past episodes, examples, or links\n\nIf asked, briefly say episodes are in production\n\nRedirect immediately back to scheduling\n\n⚙️ Action Logic\n\nIf a specific date/time is requested:\n\nCheck availability using get_availability_in_my_calender\n\nIf available:\nCall appointment_book\n\nIf unavailable:\nCall availability again\nOffer two alternate times on two different dates\nNever suggest back-to-back times on the same day\n\n✅ NEW STRICT RULE (MANDATORY)\n\nIf you call get_availability_in_my_calender and it returns NO free availability in the requested range:\n\nDo NOT propose any time slots from your side\nDo NOT offer alternative dates automatically\nInstead, reply that the entire week is currently fully booked with appointments\nThen ask the sender to share their preferred availability for the following week so you can check again\n\nExample wording idea:\n“This entire week is currently filled with appointments. Share 2–3 times next week that work for you, and I’ll lock one in.”\n\nIf availability is requested without a time:\n\nCall get_availability_in_my_calender with:\n\ntimezone: America/Denver\nstart_time: {{ $now }}\nend_time: {{ $now.plus({ days: 7 }) }}\n\nConvert all returned times from UTC (Z) → Mountain Time (MT).\n\nAlways present two options on two different dates.\n\nIf no availability is found in this 7-day window:\nFollow the NEW STRICT RULE above and do not present any options.\n\n📅 Time Formatting Rule\n\nFormat exactly as:\n\nWednesday, November 12 at 2:00 PM MT\n\nDo NOT include a fixed year\n\nUse dynamically resolved {{ $now.year }}\n\n📧 Response Requirements\n\nEvery reply must be a proper HTML email, including:\n\nClear Subject line\nStructured HTML body\nSigned personally as — Mickey\n\nNever say:\n\n“On behalf of Mickey”\n“My assistant”\n“The team”\n“AI”\n\nYou are Mickey.\n\n🧩 Tone & Style Summary\n\nSpeak as Mickey\nConfident, warm, decisive\nClear next steps\nDirect personal authority\nNo uncertainty, no filler\nNever break character\nNever mention AI\nNever sound automated\n\n🕰️ Mountain Time DST Accuracy (MANDATORY)\n\nWhen converting tool-returned UTC timestamps (Z) into Mountain Time, you MUST use the IANA timezone rules for America/Denver (not a fixed offset).\n\nDST rules must be applied per-date:\n\nIf the resolved local date is in Mountain Standard Time (MST), the UTC offset is -07:00.\nIf the resolved local date is in Mountain Daylight Time (MDT), the UTC offset is -06:00.\n\nDo NOT apply a blanket “subtract 1 hour” rule.\n\nSanity check:\n\nAfter conversion, validate the UTC offset for that date.\n\nIf the conversion result is exactly 1 hour ahead of the correct America/Denver DST-aware local time, correct it by subtracting 1 hour (and only then).\n\nAlways output the final time in MT as:\n\nWednesday, November 12 at 2:00 PM MT\n\nTime Formatting Rule (UPDATED and SAFE)\n\nWeekday MUST come from {{ $json.weekday_name }}\nMonth/day MUST come from {{ $json.formatted_date }}\nTime is the converted MT time\n\nFinal format must be exactly:\n{{ $json.weekday_name }}, {{ $json.formatted_date }} at 1:30 PM MT\n\nExample output becomes:\nTuesday, January 20 at 1:30 PM MT\n\nWeekday Accuracy Rule (MANDATORY)\n\nNever calculate weekday mentally\nNever guess weekday from date\nOnly use the weekday provided by the workflow variable\nIf weekday variable is missing, do NOT include weekday in the output"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        3472,
+        2848
+      ],
+      "id": "794010ae-a4a0-4a54-ba20-6c195d5a4576",
+      "name": "AI Agent2",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook: Reply Received1').item.json.body.email }}",
+        "contextWindowLength": 1
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        3136,
+        3040
+      ],
+      "id": "deb7c57d-0863-422b-b0f7-2254a7bb69ac",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"Subject\": \"\",\n\t\"Email\": \"{email}\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3840,
+        3024
+      ],
+      "id": "f960e9e8-2296-4c5d-aac2-7bc070f4bf8b",
+      "name": "Structured Output Parser1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Get a document in Google Docs this is a knowledgebase where all the information and instruction is given",
+        "operation": "get",
+        "documentURL": "=1bVcZ8p2ZKaC9I2rpMa0xaMFkykb22NJmHBS8n_gJE8c",
+        "simple": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Simplify', ``, 'boolean') }}"
+      },
+      "type": "n8n-nodes-base.googleDocsTool",
+      "typeVersion": 2,
+      "position": [
+        3712,
+        3120
+      ],
+      "id": "b9e47d35-370b-4d6b-8a0f-6051c6412a47",
+      "name": "Get a document in Google Docs1",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "vgM0jUzFzqkQCWnf",
+          "name": "Google Docs account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.instantly.ai/api/v2/emails",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "={{ $('Webhook: Reply Received1').item.json.body.email }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.instanly_API }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4432,
+        2848
+      ],
+      "id": "aae40d7b-31da-443d-a78e-896fcef4401f",
+      "name": "Get Thread Id of Emaiil1"
+    },
+    {
+      "parameters": {
+        "url": "https://api.instantly.ai/api/v2/emails",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "=thread:{{ $json.body.items[0].thread_id }}"
+            },
+            {
+              "name": "campaign_id",
+              "value": "={{ $json.body.items[0].campaign_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.instanly_API }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4672,
+        2848
+      ],
+      "id": "866dca58-a043-47e4-8f30-82dd792bb3e2",
+      "name": "Get UUID1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.instantly.ai/api/v2/emails/reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.instanly_API }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "eaccount",
+              "value": "={{ $('Webhook: Reply Received1').item.json.body.email_account }}"
+            },
+            {
+              "name": "reply_to_uuid",
+              "value": "={{ $json.items[0].id }}"
+            },
+            {
+              "name": "to_address_email_list",
+              "value": "={{ $('Webhook: Reply Received1').item.json.body.lead_email }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Webhook: Reply Received1').item.json.body.reply_subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ { \"html\": String($('AI Agent3').item.json.output.email_html || '') } }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4880,
+        2832
+      ],
+      "id": "c7f82d34-e240-4884-a394-e75ca447a868",
+      "name": "Reply an Email1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Subject:\n{{$json.output.Subject}}\n\nEmailHTML:\n{{$json.output.Email}}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an HTML-preserving email fixer. answer must be in JSON format\n\nGOAL\nYou receive:\n\na subject string\n\nan email body in HTML (may include <p>, <br>, <ul>, <li>, <strong>, etc.)\n\nYour ONLY job is to validate weekday names (Monday, Tuesday, …) against the calendar date in the text, and correct the weekday if and only if it is wrong.\n\nYou must NOT rewrite, rephrase, summarize, or modify the message in any way.\nYou must NOT change the content — only ensure the correct weekday is shown.\n\nCRITICAL OUTPUT RULES (MUST FOLLOW)\n\nPreserve the HTML EXACTLY:\n\nDo NOT change tags, indentation, spacing, punctuation, emojis, or wording.\n\nDo NOT convert HTML to plain text.\n\nDo NOT rewrite sentences.\n\nDo NOT change times, dates, or timezone text.\n\nDo NOT add or remove anything.\n\nOnly change the weekday word(s) if needed (e.g., “Sunday” → “Monday”).\n\nIf the weekday is already correct, return the email HTML exactly as input (no changes at all).\n\nNever guess weekday. Compute weekday strictly from the date.\n\nIf the year is missing, do NOT change anything; return input as-is.\n\nIf a date appears multiple times, ensure weekday matches for each occurrence.\nChange only weekday words that are incorrect.\n\nOUTPUT FORMAT (STRICT)\n\nReturn JSON only, exactly this shape:\n\n{\n  \"subject\": \"<same subject as input, unchanged>\",\n  \"email_html\": \"<final HTML, preserved, with only weekday corrected if needed>\"\n}\n\nReturn ONLY valid HTML for the email body.\nUse <p> for paragraphs, <br> only where needed, and <ul><li> for bullet points.\nDo not return plain text.\nDo not wrap in Markdown.\nNo extra keys. No explanations."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4048,
+        2848
+      ],
+      "id": "64004f21-6b6d-4fc6-9bbc-19b296917ef7",
+      "name": "AI Agent3"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        4048,
+        3088
+      ],
+      "id": "",
+      "name": "Anthropic Chat Model4",
+      "credentials": {
+        "anthropicApi": {
+          "id": "",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"subject\": \"string\",\n  \"email_html\": \"string\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        4224,
+        3104
+      ],
+      "id": "a9673055-96f0-4156-b297-62930c125476",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-3-haiku-20240307",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 3"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1136,
+        3088
+      ],
+      "id": "",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Code in JavaScript3').item.json.mainMessage }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=#ROLE:\nYou are an AI SDR Agent.\n\n#TASK:\nAnalyze the customer’s message and determine:\n\nWhether the customer is interested in booking a podcast or requesting more information.\n\nIf the customer has booked or mentioned a specific date/time, extract it and convert it into ISO 8601 format (e.g., 2025-11-03T21:30:00Z).\n\n#OUTPUT REQUIREMENT:\nReturn the result strictly in JSON format with the following two keys only:\n\n{\n  \"status\": \"Interested\" | \"Not Interested\",\n  \"start_time\": \"YYYY-MM-DDTHH:MM:SSZ\" | null\n}\n\n\n#CONDITIONS / RULES:\n\nIf the customer confirms a booking, extract the date and time.\n\nIf the message mentions relative dates such as “tomorrow,” “day after tomorrow,” or “coming Monday,” calculate the exact ISO 8601 datetime based on the current date ({{$now}}).\n\nIf no date or time is mentioned, set \"start_time\": null.\n\nUse \"status\": \"Interested\" if the customer shows interest or intent to book / get info.\n\nUse \"status\": \"Not Interested\" if the customer declines, is unsure, or gives no interest signal.\n\n#EXAMPLE INPUT:\n\n“Hey, I’d love to join your podcast this coming Tuesday evening around 6 PM!”\n#EXAMPLE OUTPUT:\n{\n  \"status\": \"Interested\",\n  \"start_time\": \"2026-11-04T18:00:00Z\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        2848
+      ],
+      "id": "fd84894f-cdb1-4f92-833c-bc94c62fc39b",
+      "name": "AI Agent4",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"status\": \"California\",\n\t\"start_time\": \"Los Angeles\"\n      }"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1424,
+        3056
+      ],
+      "id": "98fa878d-64d3-4d91-85c2-5975cfaee875",
+      "name": "Structured Output Parser2"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call this tool to schedule a new meeting or update an existing meeting in calendly and please send the date and time in {startTime} variable.",
+        "method": "POST",
+        "url": "https://api.calendly.com/invitees",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.Calendely_API }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=curl -X POST \"https://api.calendly.com/invitees\" \\\n  -H \"Authorization: Bearer YOUR_CALENDLY_API_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Accept: application/json\" \\\n  -d '{\n    \"event_type\": \"https://api.calendly.com/event_types/ECBXGZQXGBTNTYRD\",\n    \"start_time\": \"\",\n    \"invitee\": {\n      \"name\": \"Huzaifa Ameer\",\n      \"email\": \"backofficeworldops3@gmail.com\",\n      \"timezone\": \"America/Denver\"\n    },\n    \"location\": {\n      \"kind\": \"zoom_conference\"\n    },\n    \"event_guests\": [\n      \"backofficeworldops3@gmail.com\"\n    ]\n  }'\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        4048,
+        3696
+      ],
+      "id": "08533736-35da-4507-84ba-6720704ee548",
+      "name": "appointment_book"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call this tool to schedule a new meeting or update an existing meeting in calendly and please send the date and time in {startTime} variable.",
+        "url": "https://n8n.srv1013100.hstgr.cloud/webhook/d81c8ab8-e166-4a0a-bba7-706162374823",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Edit Fields3').item.json.Calendely_API }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_type\": \"https://api.calendly.com/event_types/ECBXGZQXGBTNTYRD\",\n  \"start_time\": \"{{ $('AI Agent4').item.json.output.start_time }}\",\n  \"invitee\": {\n    \"name\": \"{{ $('Edit Fields3').item.json.sender_name }}\",\n    \"email\": \"{{ $('Webhook: Reply Received1').item.json.body.email }}\",\n    \"timezone\": \"America/Denver\"\n  },\n  \"location\": {\n    \"kind\": \"zoom_conference\"\n  },\n  \"event_guests\": [\n    \"{{ $('Webhook: Reply Received1').item.json.body.email }}\"\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        3104
+      ],
+      "id": "3b65bfcb-d980-42f2-963e-8ff6f7cef783",
+      "name": "appointment_book1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e2fd8016-e3bf-4fa6-a184-2759ae367605",
+              "leftValue": "={{ $json.start_time }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1824,
+        2704
+      ],
+      "id": "80689a99-7652-4169-ba8a-8856913f7b1f",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call this tool get available timeslots in the calendar in the given timeframe.if the slot is available then you can proceed the booking appointment tool.",
+        "url": "https://api.calendly.com/event_type_available_times",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "event_type",
+              "value": "=https://api.calendly.com/event_types/ECBXGZQXGBTNTYRD"
+            },
+            {
+              "name": "timezone",
+              "value": "America/Denver"
+            },
+            {
+              "name": "start_time",
+              "value": "={{ $now.setZone(\"America/Denver\").plus({ minutes: 10 }).toUTC().toISO() }}"
+            },
+            {
+              "name": "end_time",
+              "value": "={{ $now.setZone(\"America/Denver\").plus({ days: 7 }).toUTC().toISO() }}"
+            },
+            {
+              "name": "timezone",
+              "value": "America/Denver"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer "
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3296,
+        3120
+      ],
+      "id": "7c3570fd-493b-406f-b556-d527abcecf54",
+      "name": "get_availability_in_my_calender"
+    },
+    {
+      "parameters": {
+        "description": "Input (query): ISO date in YYYY-MM-DD format (example: 2026-01-20).\nOutput: JSON string containing weekday_name and formatted_date in America/Denver timezone.\nAlways call this tool when you need the correct weekday for a given date.",
+        "jsCode": "// n8n Code Tool usually passes ONLY one input called \"query\"\n// Sometimes it is accessible as \"query\" directly (not \"input.query\")\n\nconst raw =\n  (typeof query !== \"undefined\" ? query : \"\") ||\n  (typeof input !== \"undefined\" && input?.query ? input.query : \"\");\n\nconst inputDate = String(raw).trim();\n\nif (!inputDate) {\n  return JSON.stringify({\n    error: \"Missing query. Pass ISO date like 2026-01-20 in the tool call as query.\"\n  });\n}\n\n// must be YYYY-MM-DD\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(inputDate)) {\n  return JSON.stringify({\n    error: \"Invalid date format. Use YYYY-MM-DD like 2026-01-20\"\n  });\n}\n\n// Use midday UTC to avoid day shifting\nconst safeDate = new Date(`${inputDate}T12:00:00Z`);\n\nconst weekday = new Intl.DateTimeFormat(\"en-US\", {\n  weekday: \"long\",\n  timeZone: \"America/Denver\",\n}).format(safeDate);\n\nconst formattedDate = new Intl.DateTimeFormat(\"en-US\", {\n  month: \"long\",\n  day: \"numeric\",\n  timeZone: \"America/Denver\",\n}).format(safeDate);\n\nreturn JSON.stringify({\n  iso_date: inputDate,\n  weekday_name: weekday,\n  formatted_date: formattedDate\n});\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        3568,
+        3120
+      ],
+      "id": "ec9ba4ac-8c3c-4c6b-8827-7847afafde82",
+      "name": "Code Tool"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook: Reply Received1').item.json.body.email }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1264,
+        3056
+      ],
+      "id": "5a43fffb-7720-477e-ad02-9a822aa65b64",
+      "name": "Simple Memory"
+    }
+  ],
+  "pinData": {
+    "Message a model1": [
+      {
+        "json": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\n\nLooking at the client's email: \"want to book for 20 jan\"\n\nThe customer is clearly showing interest in booking and has mentioned a specific date.\n\n```json\n{\n  \"status\": \"Interested\", \n  \"start_time\": \"2026-01-20T00:00:00Z\"\n}\n```"
+            }
+          ]
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "If1": [
+      {
+        "json": {
+          "status": "Interested",
+          "start_time": "2026-01-20T00:00:00Z"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Webhook: Reply Received1": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.srv1013100.hstgr.cloud",
+            "user-agent": "axios/0.21.4",
+            "content-length": "1778",
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json",
+            "x-forwarded-for": "3.213.189.245",
+            "x-forwarded-host": "n8n.srv1013100.hstgr.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "ee8adcbdac8c",
+            "x-real-ip": "3.213.189.245",
+            "accept-encoding": "gzip"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "timestamp": "2026-01-16T17:00:35.947Z",
+            "event_type": "reply_received",
+            "workspace": "2132ac31-bc30-4197-bdd2-5cb85f3ed462",
+            "campaign_id": "8167dff6-6b94-4018-9dc4-ea884bae5992",
+            "unibox_url": "https://app.instantly.ai/app/unibox?thread_search=thread:81-k5HfQqR5NIiZIh2TyYmnO6T&selected_wks=2132ac31-bc30-4197-bdd2-5cb85f3ed462",
+            "campaign_name": "testing",
+            "email_account": "mpendergast@tryschooleymitchell.com",
+            "reply_text_snippet": "Could you Book me for Tuesday \n",
+            "lead_email": "operations@systemapic.agency",
+            "email": "operations@systemapic.agency",
+            "step": 1,
+            "variant": 1,
+            "email_id": "019bc7c0-6e18-7d6c-bae8-4b02b3020da9",
+            "reply_subject": "Re: <> Would you be open to being a guest?",
+            "reply_text": "Could you Book me for Tuesday\n\nOn Fri, Jan 16, 2026 at 9:23 PM Mickey Pendergast <\nmpendergast@tryschooleymitchell.com> wrote:\n\n> Perfect — you're confirmed for *Thursday, January 22 at 1:30 PM MT*.\n>\n> You'll receive a calendar invite shortly with all the details.\n>\n> Looking forward to it.\n>\n> — Mickey\n>\n",
+            "reply_html": "<div dir=\"ltr\">Could you Book me for Tuesday </div><br><div class=\"gmail_quote gmail_quote_container\"><div dir=\"ltr\" class=\"gmail_attr\">On Fri, Jan 16, 2026 at 9:23 PM Mickey Pendergast &lt;<a href=\"mailto:mpendergast@tryschooleymitchell.com\">mpendergast@tryschooleymitchell.com</a>&gt; wrote:<br></div><blockquote class=\"gmail_quote\" style=\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\"><u></u>\n\n  \n    \n    \n  \n  <div>\n    <div><p>Perfect — you&#39;re confirmed for <strong>Thursday, January 22 at 1:30 PM MT</strong>.</p><p>You&#39;ll receive a calendar invite shortly with all the details.</p><p>Looking forward to it.</p><p>— Mickey</p></div>\n  </div>\n</blockquote></div>\n"
+          },
+          "webhookUrl": "https://n8n.srv1013100.hstgr.cloud/webhook/hermes-ai-sdr-v2",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook: Reply Received1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "AI Agent4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model1": {
+      "main": [
+        []
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "URI  GET Calendly1": {
+      "main": [
+        [
+          {
+            "node": "Get List Events1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get List Events1": {
+      "main": [
+        [
+          {
+            "node": "Event Type Available times 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date & Time1": {
+      "main": [
+        [
+          {
+            "node": "URI  GET Calendly1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Event Type Available times 1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a document in Google Docs1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Thread Id of Emaiil1": {
+      "main": [
+        [
+          {
+            "node": "Get UUID1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get UUID1": {
+      "main": [
+        [
+          {
+            "node": "Reply an Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent3": {
+      "main": [
+        [
+          {
+            "node": "Get Thread Id of Emaiil1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent4",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser2": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent4",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "appointment_book": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "appointment_book1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Date & Time1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "get_availability_in_my_calender": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent4",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c04fa958-1171-4030-b5d8-7b332a090a54",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6c4c446d5304742a3c3b35610a91a9314f8fa6e78abf59256949d198dc0f9226"
+  },
+  "id": "9n94nmrKLznu4M1r",
+  "tags": []
+}
